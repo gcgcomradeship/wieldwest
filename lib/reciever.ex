@@ -25,7 +25,10 @@ defmodule Wieldwest.Reciever do
   end
 
   defp schedule_work() do
-    Gate.accept()
+    # if Mix.env() == :dev do
+    #   Gate.accept()
+    # end
+
     Process.send(self(), :work, [])
   end
 end
