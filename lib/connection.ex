@@ -2,45 +2,56 @@ defmodule Wieldwest.Connection do
   use GenServer
   use Wieldwest, :manager
 
+  alias Wieldwest.Storage.Session
+
   def handle(port) do
     {:ok, pid} = GenServer.start_link(__MODULE__, %{port: port})
-    GenServer.cast(pid, :acceptance)
+    # GenServer.cast(pid, :acceptance)
     GenServer.cast(pid, :recv)
   end
 
-  def init(state) do
+  def init(%{port: port} = state) do
     Logger.info("New connection detected.")
-    {:ok, state}
+    session_id = Session.create(port)
+    Socket.Stream.send(port, session_id)
+    Logger.info("New session: #{session_id}")
+    {:ok, %{port: port, session: session_id}}
   end
 
-  def handle_cast(:acceptance, %{port: port}) do
-    case Socket.Stream.recv(port) do
-      {:ok, "new"} ->
-        session_id = Session.create(port)
-        Socket.Stream.send(port, session_id)
-        Logger.info("New session: #{session_id}")
-        {:noreply, %{port: port, session: session_id}}
+  # def handle_cast(:acceptance, %{port: port}) do
+  #   case Socket.Stream.recv(port) do
+  #     {:ok, "new"} ->
+  #       session_id = Session.create(port)
+  #       Socket.Stream.send(port, session_id)
+  #       Logger.info("New session: #{session_id}")
+  #       {:noreply, %{port: port, session: session_id}}
 
-      {:ok, data} ->
-        data
-        |> IO.inspect()
-        |> Logger.error()
+  #     {:ok, data} ->
+  #       data
+  #       |> IO.inspect()
+  #       |> Logger.error()
 
-        {:stop, :normal, %{error: "Unknown data! Port closed."}}
+  #       {:stop, :normal, %{error: "Unknown data! Port closed."}}
 
-      error ->
-        {:stop, :error, %{error: error}}
-    end
-  end
+  #     error ->
+  #       {:stop, :error, %{error: error}}
+  #   end
+  # end
 
   def handle_cast(:recv, %{port: port, session: session_id} = state) do
     case Socket.Stream.recv(port) do
+      {:ok, "gen_map"} ->
+        Wieldwest.Controller.call()
+        GenServer.cast(self, :recv)
+        {:noreply, state}
+
       {:ok, data} ->
-        Logger.info("New data: #{data}")
+        Wieldwest.Controller.call(data)
         GenServer.cast(self, :recv)
         {:noreply, state}
 
       {:error, :enotconn} ->
+        Session.close(session_id)
         Logger.info("Session closed: #{session_id}")
         {:noreply, state}
 
